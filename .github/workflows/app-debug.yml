@@ -59,36 +59,33 @@ jobs:
 
       - name: Select signing mode
         env:
-          KEY_B64: ${{ secrets.FILES_RELEASE_KEYSTORE_BASE64 }}
-          STORE_PASS: ${{ secrets.FILES_RELEASE_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.FILES_RELEASE_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.FILES_RELEASE_KEY_PASSWORD }}
+          KEY_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$KEY_B64$STORE_PASS$KEY_ALIAS$KEY_PASS" ]]; then
-            echo 'VARIANT=Debug' >> "$GITHUB_ENV"
-            echo 'APK_DIR=debug' >> "$GITHUB_ENV"
-            echo 'MODE=Debug' >> "$GITHUB_ENV"
-            echo 'No release signing configured; building a debug APK.'
-          elif [[ -z "$KEY_B64" || -z "$STORE_PASS" || -z "$KEY_ALIAS" || -z "$KEY_PASS" ]]; then
-            echo 'Configure all four FILES_RELEASE signing secrets.'
+          if [[ -z "$KEY_B64" || -z "$STORE_PASS" || -z "$KEY_ALIAS" || -z "$KEY_PASS" ]]; then
+            echo 'ERROR: All four GitHub secrets are required: KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.'
+            echo 'Refusing to publish a debug APK under the expected release name.'
             exit 1
-          else
-            umask 077
-            printf '%s' "$KEY_B64" | base64 --decode > "$RUNNER_TEMP/files-release.jks"
-            echo "FILES_RELEASE_STORE_FILE=$RUNNER_TEMP/files-release.jks" >> "$GITHUB_ENV"
-            echo 'VARIANT=Release' >> "$GITHUB_ENV"
-            echo 'APK_DIR=release' >> "$GITHUB_ENV"
-            echo 'MODE=Release' >> "$GITHUB_ENV"
           fi
+          umask 077
+          printf '%s' "$KEY_B64" | base64 --decode > "$RUNNER_TEMP/files-release.jks"
+          test -s "$RUNNER_TEMP/files-release.jks"
+          echo "FILES_RELEASE_STORE_FILE=$RUNNER_TEMP/files-release.jks" >> "$GITHUB_ENV"
+          echo 'VARIANT=Release' >> "$GITHUB_ENV"
+          echo 'APK_DIR=release' >> "$GITHUB_ENV"
+          echo 'MODE=Release' >> "$GITHUB_ENV"
+          echo 'Release signing configured.'
 
       - name: Test and build APK
         working-directory: project
         env:
-          FILES_RELEASE_STORE_PASSWORD: ${{ secrets.FILES_RELEASE_STORE_PASSWORD }}
-          FILES_RELEASE_KEY_ALIAS: ${{ secrets.FILES_RELEASE_KEY_ALIAS }}
-          FILES_RELEASE_KEY_PASSWORD: ${{ secrets.FILES_RELEASE_KEY_PASSWORD }}
+          FILES_RELEASE_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          FILES_RELEASE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          FILES_RELEASE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: >-
           gradle :app:testDebugUnitTest ":app:assemble${VARIANT}" --no-daemon
           -PappVersion="${VER}"
@@ -115,6 +112,15 @@ jobs:
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --print-certs "Files-v${VER}.apk" > signing-certificate.txt
+          if ! grep -qi 'certificate SHA-1 digest: 0b223f7d550a2ce2e344361b12593dc5ac1d2aa0' signing-certificate.txt; then
+            echo 'ERROR: Signed APK SHA-1 does not match the new Files release certificate.'
+            echo 'Check signing secrets and keystore; release will not be published.'
+            exit 1
+          fi
+          if grep -qi 'CN=Android Debug' signing-certificate.txt; then
+            echo 'ERROR: Debug certificate detected. Refusing to publish.'
+            exit 1
+          fi
           printf '\nPackage: com.example.httpsserver\nVersion: %s\n' "$VER" >> signing-certificate.txt
 
       - name: Upload APK artifact
