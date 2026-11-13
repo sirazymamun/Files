@@ -1,0 +1,26 @@
+# Local build output, tooling state and credentials
+.gradle/
+**/.gradle/
+**/build/
+**/.kotlin/
+.idea/
+*.iml
+local.properties
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.asc
+*.env
+.env
+.env.*
+# Extracted release binaries; source.zip is the intentionally tracked source bundle
+*.apk
+*.aab
+# Do not ignore .github, .gitignore, source.zip, or apk-version.txt
